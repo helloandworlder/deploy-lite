@@ -14,6 +14,7 @@ modules:
       - 1.3.6.1.2.1.31.1.1   # ifXTable
       - 1.3.6.1.4.1.2011     # huawei/h3c 企业 MIB
       - 1.3.6.1.4.1.2021.13  # 自定义模拟器指标的根OID
+      - 1.3.6.1.4.1.2021.13.3 # 新增H3C常用模拟指标的根OID
     get:
       - 1.3.6.1.2.1.1.3.0    # sysUpTime
       - 1.3.6.1.2.1.1.5.0    # sysName
@@ -24,7 +25,20 @@ modules:
       - 1.3.6.1.4.1.2021.13.1.3.0 # simGcCount
       - 1.3.6.1.4.1.2021.13.1.4.0 # simMemoryMB
       - 1.3.6.1.4.1.2021.13.1.5.0 # simUptimeSec
-      - 1.3.6.1.4.1.2021.13.1.6.0 # simCpuUsagePercent
+      - 1.3.6.1.4.1.2021.13.1.6.0 # simCpuUsagePercent (also used for simCpuUtilPercent)
+      # 新增H3C常用模拟指标的OID
+      - 1.3.6.1.4.1.2021.13.3.2.0 # simMemoryUtilPercent
+      - 1.3.6.1.4.1.2021.13.3.3.0 # simDeviceTemperatureCelsius
+      # Fan status OIDs (indexed, will be walked if parent is in walk, or use specific gets if needed)
+      # For simplicity, we'll rely on the walk for indexed values like fan, psu, ifErrors, ifDiscards
+      # If direct GETs are preferred for specific instances, they can be added like:
+      # - 1.3.6.1.4.1.2021.13.3.4.1.1 # simFanStatus for fan 1
+      # - 1.3.6.1.4.1.2021.13.3.5.1.1 # simPsuStatus for psu 1
+      # - 1.3.6.1.4.1.2021.13.3.6.1.1 # simIfInErrorsTotal for ifIndex 1
+      # - 1.3.6.1.4.1.2021.13.3.7.1.1 # simIfOutDiscardsTotal for ifIndex 1
+      - 1.3.6.1.4.1.2021.13.3.8.0 # simArpCacheEntries
+      - 1.3.6.1.4.1.2021.13.3.9.0 # simMacTableEntries
+      - 1.3.6.1.4.1.2021.13.3.10.0 # simActiveTcpConnections
     metrics:
       - name: sysUpTime
         oid: 1.3.6.1.2.1.1.3.0
@@ -144,3 +158,65 @@ modules:
             labelname: ifDescr
             oid: 1.3.6.1.2.1.2.2.1.2 # 使用标准ifDescr进行关联
         help: "H3C SNMP模拟器接口输出速率 (Bytes/sec)"
+      # 新增H3C常用模拟指标的定义
+      - name: simCpuUtilPercent
+        oid: 1.3.6.1.4.1.2021.13.1.6.0 # Reusing the existing CPU OID from sim
+        type: gauge
+        help: "SNMP模拟器CPU利用率 (%) - 模拟值"
+      - name: simMemoryUtilPercent
+        oid: 1.3.6.1.4.1.2021.13.3.2.0
+        type: gauge
+        help: "SNMP模拟器内存利用率 (%) - 模拟值"
+      - name: simDeviceTemperatureCelsius
+        oid: 1.3.6.1.4.1.2021.13.3.3.0
+        type: gauge
+        help: "SNMP模拟器设备温度 (摄氏度) - 模拟值"
+      - name: simFanStatus
+        oid: 1.3.6.1.4.1.2021.13.3.4.1 # Base OID for fan status table
+        type: gauge
+        indexes:
+          - labelname: fanIndex
+            type: integer
+        # No direct lookup for fanDescr via SNMP in this sim, labels from Prometheus GaugeVec
+        help: "SNMP模拟器风扇状态 (1=normal, 2=failed) - 模拟值"
+      - name: simPsuStatus
+        oid: 1.3.6.1.4.1.2021.13.3.5.1 # Base OID for PSU status table
+        type: gauge
+        indexes:
+          - labelname: psuIndex
+            type: integer
+        help: "SNMP模拟器电源状态 (1=normal, 2=failed, 3=not_present) - 模拟值"
+      - name: simIfInErrorsTotal
+        oid: 1.3.6.1.4.1.2021.13.3.6.1 # Base OID for ifInErrors table
+        type: counter
+        indexes:
+          - labelname: ifIndex
+            type: integer
+        lookups: # Can lookup ifDescr if needed, similar to ifInOctets
+          - labels: [ifIndex]
+            labelname: ifDescr
+            oid: 1.3.6.1.2.1.2.2.1.2
+        help: "SNMP模拟器接口入方向错误包总数 - 模拟值"
+      - name: simIfOutDiscardsTotal
+        oid: 1.3.6.1.4.1.2021.13.3.7.1 # Base OID for ifOutDiscards table
+        type: counter
+        indexes:
+          - labelname: ifIndex
+            type: integer
+        lookups:
+          - labels: [ifIndex]
+            labelname: ifDescr
+            oid: 1.3.6.1.2.1.2.2.1.2
+        help: "SNMP模拟器接口出方向丢包总数 - 模拟值"
+      - name: simArpCacheEntries
+        oid: 1.3.6.1.4.1.2021.13.3.8.0
+        type: gauge
+        help: "SNMP模拟器ARP缓存条目数 - 模拟值"
+      - name: simMacTableEntries
+        oid: 1.3.6.1.4.1.2021.13.3.9.0
+        type: gauge
+        help: "SNMP模拟器MAC地址表条目数 - 模拟值"
+      - name: simActiveTcpConnections
+        oid: 1.3.6.1.4.1.2021.13.3.10.0
+        type: gauge
+        help: "SNMP模拟器活动TCP连接数 - 模拟值"

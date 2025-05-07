@@ -5,6 +5,7 @@
 - **Prometheus**: 时序数据库，用于存储监控指标
 - **SNMP Exporter**: 用于将SNMP数据转换为Prometheus格式的指标
 - **H3C SNMP Simulator**: 增强版H3C网络设备SNMP模拟器，带有自监控功能
+- **Grafana**: 开源的分析和可视化平台，用于展示监控数据
 
 ## 主要特点
 
@@ -63,16 +64,22 @@ docker-compose ps
 ### 访问服务
 
 - **Prometheus**：http://your-server-ip:9090
+- **Grafana**：http://your-server-ip:3000 (默认用户名/密码: admin/admin)
 - **H3C SNMP模拟器指标**：http://your-server-ip:9117/metrics
 - **SNMP模拟器状态**：http://your-server-ip:9117/status
 
 ## 系统架构
 
 ```
+                                 ┌─────────────────┐
+                                 │     Grafana     │
+                                 │ (数据可视化和仪表盘) │
+                                 └───────▲─────────┘
+                                         │ (查询指标)
+                                         │
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │    Prometheus   │     │   SNMP Exporter  │     │  H3C SNMP Sim   │
-│                 │◄────┤                 │◄────┤                 │
-│ (指标存储和可视化) │     │ (SNMP to Prometheus)│     │  (设备模拟器)   │
+│ (指标存储)      │◄────┤ (SNMP to Metrics)│◄────┤  (设备模拟器)   │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
 ```
 
@@ -90,4 +97,5 @@ docker-compose ps
 docker-compose logs prometheus
 docker-compose logs snmp-exporter
 docker-compose logs h3c-snmp-sim
-``` 
+docker-compose logs grafana
+```

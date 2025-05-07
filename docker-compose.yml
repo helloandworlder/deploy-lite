@@ -1,60 +1,147 @@
+# Docker Compose 文件版本 (建议添加)
+version: '3.8'
+
 services:
+  # Prometheus 服务：负责存储和查询监控指标
   prometheus:
+    # 使用官方 Prometheus 镜像。考虑固定版本以提高稳定性，例如: prom/prometheus:v2.51.1
     image: prom/prometheus:latest
     container_name: prometheus
     ports:
+      # 将容器的 9090 端口映射到主机的 9090 端口，用于访问 Prometheus UI 和 API
       - "9090:9090"
     volumes:
+      # 挂载本地 Prometheus 配置文件目录到容器内
       - ./conf/prometheus:/etc/prometheus
+      # 使用命名卷持久化 Prometheus 的时序数据库 (TSDB) 数据
       - prometheus_data:/prometheus
     command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-      - '--web.enable-lifecycle'
-    restart: always
+      # Prometheus 启动命令及参数
+      - '--config.file=/etc/prometheus/prometheus.yml'        # 指定配置文件路径
+      - '--storage.tsdb.path=/prometheus'                     # 指定 TSDB 数据存储路径
+      - '--web.console.libraries=/etc/prometheus/console_libraries' # 控制台库路径
+      - '--web.console.templates=/etc/prometheus/consoles'      # 控制台模板路径
+      - '--web.enable-lifecycle'                              # 允许通过 HTTP API 热加载配置
+    restart: always # 容器退出时总是尝试重启
     networks:
+      # 加入自定义网络，以便与其他服务通信
       - monitoring-network
+    healthcheck:
+      # 检查 Prometheus 是否健康 (访问其 /-/healthy 端点)
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s    # 每 30 秒检查一次
+      timeout: 5s     # 检查超时时间 5 秒
+      retries: 3      # 失败后重试 3 次
+      start_period: 10s # 容器启动后等待 10 秒再开始健康检查
 
+  # SNMP Exporter 服务：负责通过 SNMP 协议从目标设备获取指标，并转换为 Prometheus 格式
   snmp-exporter:
+    # 使用官方 SNMP Exporter 镜像。考虑固定版本，例如: prom/snmp-exporter:v0.25.0
     image: prom/snmp-exporter:latest
     container_name: snmp-exporter
     ports:
+      # 将容器的 9116 端口映射到主机的 9116 端口，Prometheus 将通过此端口抓取指标
       - "9116:9116"
     volumes:
+      # 挂载本地 SNMP Exporter 配置文件目录 (包含 snmp.yml) 到容器内
       - ./conf/snmp-exporter:/etc/snmp_exporter
     command:
-      - '--config.file=/etc/snmp_exporter/snmp.yml'
+      # SNMP Exporter 启动命令及参数
+      - '--config.file=/etc/snmp_exporter/snmp.yml' # 指定配置文件路径
     restart: always
     networks:
       - monitoring-network
+    # depends_on 确保模拟器容器先于 exporter 启动 (但实际抓取依赖 Prometheus 配置)
     depends_on:
-      - h3c-snmp-sim
+      h3c-snmp-sim:
+        condition: service_healthy # 等待模拟器健康检查通过后再启动
+    healthcheck:
+      # 简单检查 SNMP Exporter 的 HTTP 服务端口是否可访问
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9116"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
+  # H3C SNMP Simulator 服务：模拟 H3C 网络设备，响应 SNMP 查询并提供自身指标
   h3c-snmp-sim:
     build:
-      context: ./h3c-snmp-sim
-      dockerfile: Dockerfile
+      context: ./h3c-snmp-sim # 指定 Docker 构建上下文目录
+      dockerfile: Dockerfile   # 指定用于构建镜像的 Dockerfile 文件名
     container_name: h3c-snmp-sim
     ports:
+      # 映射标准 SNMP UDP 端口 161
       - "161:161/udp"
-      - "9117:9116"  # 映射到主机的9117端口，避免与snmp-exporter冲突
+      # 映射模拟器自身的 HTTP 指标端口 (容器内 9116) 到主机的 9117 端口
+      # 避免与 snmp-exporter 的 9116 端口冲突
+      - "9117:9116"
     environment:
+      # 设置环境变量，告知模拟器应用监听哪个 HTTP 端口
       - HTTP_PORT=9116
     restart: always
     networks:
       - monitoring-network
-    healthcheck:
+    healthcheck: # 使用模拟器内置的 /health 端点进行健康检查
       test: ["CMD", "wget", "-q", "-O-", "http://localhost:9116/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 5s
+      start_period: 5s # 容器启动后等待 5 秒再开始检查
 
+  # Grafana 服务：用于数据可视化和仪表盘展示
+  grafana:
+    # 使用官方 Grafana 开源版镜像。考虑固定版本，例如: grafana/grafana-oss:10.4.2
+    image: grafana/grafana-oss:latest
+    container_name: grafana
+    ports:
+      # 映射 Grafana Web UI 端口
+      - "3000:3000"
+    volumes:
+      # 使用命名卷持久化 Grafana 的数据 (配置、仪表盘、用户等)
+      - grafana_data:/var/lib/grafana
+      # 可选：如果需要预配置数据源或仪表盘，可以取消注释以下挂载
+      # - ./conf/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      # - ./conf/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      # - ./conf/grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      # 设置 Grafana 管理员用户名和密码
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      # 自动配置默认的 Prometheus 数据源
+      - GF_DATASOURCES_DEFAULT_NAME=Prometheus     # 数据源名称
+      - GF_DATASOURCES_DEFAULT_TYPE=prometheus     # 数据源类型
+      - GF_DATASOURCES_DEFAULT_URL=http://prometheus:9090 # Prometheus 地址 (使用服务名)
+      - GF_DATASOURCES_DEFAULT_ACCESS=proxy        # 访问模式: proxy (推荐) 或 direct
+      - GF_DATASOURCES_DEFAULT_IS_DEFAULT=true     # 设为默认数据源
+      # 其他 Grafana 配置选项
+      - GF_AUTH_ANONYMOUS_ENABLED=false            # 禁止匿名访问，需要登录查看仪表盘
+      # - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer        # 如果允许匿名访问，可以设置匿名用户的角色
+      # - GF_INSTALL_PLUGINS=grafana-clock-panel   # 示例：启动时安装插件
+    restart: always
+    networks:
+      - monitoring-network
+    # 依赖 Prometheus 服务先启动，确保数据源可用
+    depends_on:
+      prometheus:
+        condition: service_healthy # 等待 Prometheus 健康检查通过后再启动 Grafana
+    healthcheck:
+      # 检查 Grafana API 是否响应 (需要 admin 凭证)
+      # 注意：如果更改了 admin 密码，需要相应更新这里的 curl 命令
+      test: ["CMD", "curl", "-f", "http://admin:admin@localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5 # Grafana 启动可能稍慢，增加重试次数
+      start_period: 30s # 等待更长时间再开始检查
+
+# 定义网络
 networks:
+  # 创建一个自定义的桥接网络，允许容器之间通过服务名进行通信
   monitoring-network:
     driver: bridge
 
+# 定义命名卷
 volumes:
-  prometheus_data: {} 
+  # 用于持久化 Prometheus 的时序数据
+  prometheus_data: {}
+  # 用于持久化 Grafana 的配置、仪表盘等数据
+  grafana_data: {}
