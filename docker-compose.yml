@@ -1,0 +1,60 @@
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./conf/prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    restart: always
+    networks:
+      - monitoring-network
+
+  snmp-exporter:
+    image: prom/snmp-exporter:latest
+    container_name: snmp-exporter
+    ports:
+      - "9116:9116"
+    volumes:
+      - ./conf/snmp-exporter:/etc/snmp_exporter
+    command:
+      - '--config.file=/etc/snmp_exporter/snmp.yml'
+    restart: always
+    networks:
+      - monitoring-network
+    depends_on:
+      - h3c-snmp-sim
+
+  h3c-snmp-sim:
+    build:
+      context: ./h3c-snmp-sim
+      dockerfile: Dockerfile
+    container_name: h3c-snmp-sim
+    ports:
+      - "161:161/udp"
+      - "9117:9116"  # 映射到主机的9117端口，避免与snmp-exporter冲突
+    environment:
+      - HTTP_PORT=9116
+    restart: always
+    networks:
+      - monitoring-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:9116/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+networks:
+  monitoring-network:
+    driver: bridge
+
+volumes:
+  prometheus_data: {} 
