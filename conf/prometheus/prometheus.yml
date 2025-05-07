@@ -17,26 +17,10 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:9090"]
 
-  - job_name: "h3c_snmp_sim"
-    scrape_interval: 5s
+  - job_name: "metric_simulators"
+    scrape_interval: 10s # 可以为这个 job 设置特定的抓取间隔
     static_configs:
-      - targets: ["h3c-snmp-sim:9116"]
+      - targets: ["metric_sim_1:8080", "metric_sim_2:8080"]
         labels:
-          instance: "h3c-snmp-sim"
-          service: "snmp-simulator"
-
-  - job_name: "snmp"
-    metrics_path: /snmp
-    params:
-      module: [h3c]
-      target: [h3c-snmp-sim]
-    static_configs:
-      - targets:
-          - snmp-exporter:9116
-    relabel_configs:
-      - source_labels: [__address__]
-        target_label: __param_target
-      - source_labels: [__param_target]
-        target_label: instance
-      - target_label: __address__
-        replacement: snmp-exporter:9116 
+          service: "metric-simulator"
+          # instance 标签将由 Prometheus 根据 target 自动生成，例如 metric_sim_1:8080
